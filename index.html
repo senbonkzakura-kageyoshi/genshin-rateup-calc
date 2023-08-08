@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>Genshin Rate-Up Calculator</title>
+		<script src="rational.js"></script>
+		<script type="text/javascript">
+			window.onload = function() {
+				balls.reset();
+				ui_update();
+			}
+
+			function MysteriousSoftPity(i) {
+				return i % 90n < 76n ? new Rational(0n) : new Rational(318n, 1000n);
+			}
+
+			class Data {
+				constructor(pity, pb, pbp, pr, pp, pb_fn) {
+					this.PityThreshold = BigInt(pity);
+					this.P_Base_Value = pb;
+					this.P_BasePity = pbp;
+					this.P_Rateup = pr;
+					this.P_Pick = pp;
+					this.P_Base = pb_fn;
+				}
+			}
+
+			const sr_data = new Data(
+				10n,
+				new Rational(51n, 1000n),
+				new Rational(994n, 1000n),
+				new Rational(1n, 2n),
+				new Rational(1n, 3n),
+				function(i) { return this.P_Base_Value; }
+			);
+
+			const ssr_data = new Data(
+				90n,
+				new Rational(6n, 1000n),
+				new Rational(1n),
+				new Rational(1n, 2n),
+				new Rational(1n),
+				function(i) { return this.P_Base_Value.plus(MysteriousSoftPity(i)); }
+			);
+
+			var rarity = 4;
+			var incomes = [false, false, false];
+			var currencies = [0n, 0n, 0n];
+			var current_k = 0n;
+			var current_r = 1n;
+			var current_data = sr_data;
+
+			function rarity_changed(selected) {
+				rarity = selected.value;
+				ui_update();
+			}
+
+			function rateup_changed(checkbox) {
+				current_r = BigInt(!checkbox.checked);
+				ui_update();
+			}
+
+			function preroll_changed(numbers) {
+				if (numbers.checkValidity()) current_k = BigInt(numbers.value);
+				else numbers.reportValidity();
+				ui_update();
+			}
+
+			function have_fates(checkbox) {
+				incomes[0] = checkbox.checked;
+				currencies[0] = incomes[0] ? 1n : 0n;
+				ui_update();
+			}
+
+			function have_primos(checkbox) {
+				incomes[1] = checkbox.checked;
+				currencies[1] = incomes[1] ? 1n : 0n;
+				ui_update();
+			}
+
+			function have_genesis(checkbox) {
+				incomes[2] = checkbox.checked;
+				currencies[2] = incomes[2] ? 1n : 0n;
+				ui_update();
+			}
+
+			function fates_changed(numbers) {
+				if (numbers.checkValidity()) currencies[0] = BigInt(numbers.value);
+				else numbers.reportValidity();
+				ui_update();
+			}
+
+			function primos_changed(numbers) {
+				if (numbers.checkValidity()) currencies[1] = BigInt(numbers.value);
+				else numbers.reportValidity();
+				ui_update();
+			}
+
+			function genesis_changed(numbers) {
+				if (numbers.checkValidity()) currencies[2] = BigInt(numbers.value);
+				else numbers.reportValidity();
+				ui_update();
+			}
+
+			function run() {
+				const the_money = BigInt(currencies[0] + (currencies[1] + currencies[2]) / 160n);
+//				console.log(`you have ${currencies[0]} fates, ${currencies[1]} primos and ${currencies[2]} genesis for a total of ${the_money} rolls`);
+				const result = calc(current_data, the_money, current_k, current_r);
+				let p_pc = document.getElementById("result");
+				if (Number(result.n) / Number(result.d) <= 0.5) {
+					let coins = 1;
+					const coin_chance = new Rational(1n, 2n);
+					let coin_result1 = coin_chance;
+					let coin_result2 = coin_chance;
+					while (result.num() < coin_result2.num()) {
+						coins += 1;
+						coin_result1 = coin_result2;
+						coin_result2 = coin_chance.power(coins);
+					}
+					let coin_result;
+					if (Math.abs(coin_result1.num() - result.num()) < Math.abs(coin_result2.num() - result.num())) {
+						coin_result = coin_result1;
+						coins -= 1;
+					} else {
+						coin_result = coin_result2;
+					}
+
+					p_pc.innerHTML = `Your chance of getting the desired character is ${result.percent()}%. That's similar to winning ${coins} coin flips in a row (${coin_result.percent()}%).`;
+				} else {
+					p_pc.innerHTML = `Your chance of getting the desired character is ${Number(result.n * 100n) / Number(result.d)}%. That's more likely than winning a coin flip.`;
+				}
+			}
+
+			function format_assumption(topic, value) {
+				return `<tr><td>${topic}</td><td>${value}</td></tr>`;
+			}
+
+			function format_assumptions() {
+				let p_as = document.getElementById("assumptions");
+				p_as.innerHTML = '';
+				const the_money = BigInt(currencies[0] + (currencies[1] + currencies[2]) / 160n);
+				as = "<table>";
+				as += format_assumption(`Base rate for ${rarity}-star items`, `${current_data.P_Base(1n).percent()}%`);
+				if (rarity == 5)
+					as += format_assumption(`Base rate (soft pity) for ${rarity}-star items`, `${current_data.P_Base(76n).percent()}%`);
+				as += format_assumption(`Base rate (hard pity) for ${rarity}-star items`, `${current_data.P_BasePity.percent()}%`);
+				as += format_assumption(`Chance to get a rate-up ${rarity}-star`, `${current_data.P_Rateup.percent()}%`);
+				if (rarity == 4) {
+					as += format_assumption(`Chance to get the right rate-up ${rarity}-star`, `${current_data.P_Pick.n}/${current_data.P_Pick.d}`);
+				} else {
+					as += format_assumption(`Chance to get the right rate-up ${rarity}-star`, `${current_data.P_Pick.percent()}%`);
+				}
+				if (rarity == 5)
+					as += format_assumption(`Soft pity threshold`, `76`);
+				as += format_assumption(`Hard pity threshold`, `${current_data.PityThreshold}`);
+				as += format_assumption(`Starting with guarantee`, `${current_r == 1 ? "yes" : "no"}`);
+				as += format_assumption(`Current progress to hard pity`, `${current_k}`);
+				as += format_assumption(`Number of pulls planned`, `${the_money}`);
+				as += "</table>";
+				p_as.innerHTML += as;
+			}
+
+			function ui_update() {
+				let p_wh = document.getElementById("wish-history");
+				let f_wh = document.getElementById("fs-wish-history");
+				let p_rs = document.getElementById("reserves");
+				let f_rs = document.getElementById("fs-reserves");
+				let b_go = document.getElementById("go");
+
+				let l_lp = document.getElementById("about-last-pull");
+				let l_lk = document.getElementById("l-for-k");
+
+				let i_k = document.getElementById("k");
+				let i_r = document.getElementById("r");
+				let i_if = document.getElementById("fates");
+				let i_pg = document.getElementById("primos");
+				let i_gc = document.getElementById("genesis");
+				if (rarity == 4) {
+					current_data = sr_data;
+				} else {
+					current_data = ssr_data;
+				}
+				p_wh.innerHTML = `Now look through your wish history. Find the last ${rarity}-star you pulled. Be sure to count the pulls.`;
+				l_lp.innerHTML = `About your last ${rarity}-star pull…`;
+//				l_lk.innerHTML = `What number entry in your wish history is the ${rarity}-star?`;
+				l_lk.innerHTML = `How many pulls are in your history <em>after</em> your last ${rarity}-star?`;
+				i_k.max = Number(current_data.PityThreshold - 1n);
+				if (!i_k.checkValidity()) i_k.reportValidity();
+
+				i_if.disabled = !incomes[0];
+				i_pg.disabled = !incomes[1];
+				i_gc.disabled = !incomes[2];
+
+				b_go.disabled =
+					   !i_k.checkValidity()
+					|| !i_if.checkValidity()
+					|| !i_pg.checkValidity()
+					|| !i_gc.checkValidity()
+					|| (!incomes[0] && !incomes[1] && !incomes[2]);
+
+				format_assumptions();
+			}
+
+			function calc(data, wishes, k, r) {
+				function P_AnyBase(i) {
+					return BigInt(BigInt(i) + BigInt(k)) % data.PityThreshold == 0n
+						 ? data.P_BasePity
+						 : data.P_Base(BigInt(i) + k);
+				}
+
+				let P_HaveRateup_List = [new Rational(r)];
+
+				function P_HaveRateup(i) {
+					i = i - 1;
+					if (i > 0n) {
+						if (P_HaveRateup_List.length < i + 1) {
+							if (P_HaveRateup_List.length < i) {
+								throw new Error("you weren't supposed to do that");
+							}
+							const P_Base = data.P_Base(BigInt(i) + k);
+							const prev_hr = P_HaveRateup_List[i - 1];
+							P_HaveRateup_List.push(
+								prev_hr.times(new Rational(1n).minus(P_Base))
+									.plus(new Rational(1n).minus(prev_hr).times(P_Base).times(new Rational(1n).minus(data.P_Rateup)))
+							);
+						}
+					}
+					return P_HaveRateup_List[i];
+				}
+
+				function P_Score(i) {
+					return P_HaveRateup(i).times(P_AnyBase(i)).times(data.P_Pick)
+							.plus(new Rational(1n).minus(P_HaveRateup(i)).times(P_AnyBase(i)).times(data.P_Rateup).times(data.P_Pick));
+				}
+
+				function P_In(n) {
+					let chance = new Rational(0);
+					for (let i = 1; i <= n; i++) {
+						let at_i = P_Score(i);
+//						console.log(`%rateup ${P_HaveRateup(i).n}/${P_HaveRateup(i).d} %any ${P_AnyBase(i).n}/${P_AnyBase(i).d} %pick ${data.P_Pick.n}/${data.P_Pick.d}`);
+						for (let j = 1; j < i; j++) {
+							at_i = at_i.times(new Rational(1n).minus(P_Score(j)));
+						}
+//						console.log(`at ${i}: ${at_i.n}/${at_i.d}`);
+						chance = chance.plus(at_i);
+					}
+					return chance;
+				}
+
+				return P_In(wishes);
+			}
+		</script>
+	</head>
+	<body>
+		<h1>So You Want That Rate-Up Character</h1>
+		<form name="balls">
+			<fieldset>
+				<legend>The rarity is…</legend>
+				<input type="radio" name="rarity" id="sr"  onchange="rarity_changed(this)" value="4" checked/><label for="sr">4-star</label>
+				<input type="radio" name="rarity" id="ssr" onchange="rarity_changed(this)"  value="5"/><label for="ssr">5-star</label>
+			</fieldset>
+			<p id="wish-history"></p>
+			<fieldset id="fs-wish-history">
+				<legend id="about-last-pull"></legend>
+				<input type="checkbox" name="r" id="r" onchange="rateup_changed(this)"/><label for="r">It was a rate-up character (you may need to check with previous banners)</label>
+				<br/>
+				<label id="l-for-k" for="k"></label><input type="number" name="k" id="k" value="0" min="0" max="9" onchange="preroll_changed(this)" onkeypress="this.onchange()" onpaste="this.onchange()" oninput="this.onchange()"/>
+			</fieldset>
+			<p id="reserves">Finally, let's talk about your reserves.</p>
+			<fieldset id="fs-reserves">
+				<legend>You plan to spend…</legend>
+				<input type="checkbox" name="gotfates" id="gotfates" onchange="have_fates(this)"/>
+				<input type="number" name="fates" id="fates" value="1" min="1" onchange="fates_changed(this)" onkeypress="this.onchange()" onpaste="this.onchange()" oninput="this.onchange()" disabled/>
+				<label for="fates">Intertwined Fates</label>
+				<br/>
+				<input type="checkbox" name="gotprimos" id="gotprimos" onchange="have_primos(this)"/>
+				<input type="number" name="primos" id="primos" value="1" min="1" onchange="primos_changed(this)" onkeypress="this.onchange()" onpaste="this.onchange()" oninput="this.onchange()" disabled/>
+				<label for="primos">Primogems</label>
+				<br/>
+				<input type="checkbox" name="gotgenesis" id="gotgenesis" onchange="have_genesis(this)"/>
+				<input type="number" name="genesis" id="genesis" value="1" min="1" onchange="genesis_changed(this)" onkeypress="this.onchange()" onpaste="this.onchange()" oninput="this.onchange()" disabled/>
+				<label for="genesis">Genesis Crystals</label>
+			</fieldset>
+			<input type="button" id="go" value="Show me the numbers" onclick="run()" disabled/>
+		</form>
+		<p id="result"></p>
+		<h2>Assumptions</h2>
+		<div id="assumptions"></div>
+	</body>
+</html>
